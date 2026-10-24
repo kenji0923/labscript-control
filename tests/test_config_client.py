@@ -43,7 +43,7 @@ def test_ssh_paths_are_literal_and_json_uses_stdin(monkeypatch, profiles):
         seen.append((argv, kwargs))
         return NS(returncode=0, stderr='', stdout=json.dumps({'ok':True,'result':{},
                   'server':{'hostname':'TestHostMicro1','protocol_version':2}}))
-    monkeypatch.setattr(client.subprocess, 'run', run)
+    monkeypatch.setattr(client, 'subprocess', NS(run=run, TimeoutExpired=client.subprocess.TimeoutExpired))
     c = client.Client('micro1', config_path=profiles, transport='ssh', ssh_config='ssh-test')
     response = c.call('blacs', 'queue.add', {'path':"Z:/a'; evil.h5"}, 'req-1', lease_id='test-lease-000001')
     argv, kwargs = seen[0]
@@ -60,7 +60,11 @@ def test_ssh_paths_are_literal_and_json_uses_stdin(monkeypatch, profiles):
 
 def test_local_transport_never_spawns_ssh(monkeypatch):
     monkeypatch.setattr(client, 'execute_local', lambda app,req:{'ok':True,'result':{},'server':machine_info()})
-    monkeypatch.setattr(client.subprocess, 'run', lambda *a,**kw:pytest.fail('must not use SSH'))
+    # Keep platform.system() free to query Windows through the real subprocess
+    # module; only the control client's SSH launcher is under test.
+    monkeypatch.setattr(client, 'subprocess', NS(
+        run=lambda *a,**kw:pytest.fail('must not use SSH'),
+        TimeoutExpired=client.subprocess.TimeoutExpired))
     assert client.Client('local').call('host','status')['transport'] == 'local'
 
 
