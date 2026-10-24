@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "labscript-local": {
+      "command": "C:/Users/operator/.venvs/labcontrol/Scripts/python.exe",
+      "args": ["-m", "labcontrol.mcp_server", "--local"]
+    }
+  }
+}

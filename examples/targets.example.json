@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "default_target": "lab-a",
+  "targets": {
+    "lab-a": {
+      "hostname": "LAB-PC-A",
+      "ssh_host": "lab-a",
+      "python": "C:/Users/operator/.venvs/labscript/Scripts/python.exe"
+    },
+    "lab-b": {
+      "hostname": "LAB-PC-B",
+      "ssh_host": "lab-b",
+      "python": "C:/Users/operator/.venvs/labscript/Scripts/python.exe"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+include README.md
+recursive-include docs *.html
+recursive-include examples *.json
+recursive-include tools *.py

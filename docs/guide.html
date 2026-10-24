@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>labscript-control operations guide</title>
+<style>body{font:16px/1.7 system-ui,sans-serif;max-width:960px;margin:48px auto;padding:0 24px;color:#182430;background:#fafbfd}h1{font-size:1.8rem}h2{font-size:1.25rem;margin-top:2em}code,pre{font-family:ui-monospace,monospace;font-size:.88em}pre{background:#edf1f6;padding:18px;overflow:auto;border-radius:8px}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #d6dde5;padding:10px;vertical-align:top}a{color:#135baa}</style>
+<h1>labscript-control operations guide</h1>
+<p>A shared CLI and MCP interface for Windows BLACS and Runmanager. Remote clients use SSH; native Windows clients can connect directly to the same authenticated localhost API.</p>
+<h2>Installation</h2>
+<p>Install this package into the Python environment that runs BLACS and Runmanager. Keep the existing experiment profile separate from this repository.</p>
+<pre>git clone https://github.com/kenji0923/labscript-control.git
+
+# PowerShell on the control PC:
+$daqPython = 'C:\path\to\labscript-env\Scripts\python.exe'
+&amp; $daqPython -m pip install C:\src\labscript-control
+&amp; $daqPython -m labcontrol.install_windows `
+  --labscript-root C:\path\to\labscript-suite</pre>
+<p>The profile root must contain <code>labconfig\COMPUTERNAME.ini</code>. Use <code>--labconfig</code> to provide another machine-specific INI. Run the installer as the same Windows user that runs the applications. The installer locates the installed application modules without importing their GUI/hardware dependencies, validates its edits, writes backups, and registers tasks. It does not start applications or run shots.</p>
+<p>For local MCP, create a separate Python environment and install the MCP extra there. Then provide that environment to the bridge installer:</p>
+<pre>python -m venv C:\path\to\agent-env
+&amp; C:\path\to\agent-env\Scripts\python.exe -m pip install 'C:\src\labscript-control[mcp]'
+&amp; $daqPython -m labcontrol.install_windows `
+  --labscript-root C:\path\to\labscript-suite `
+  --mcp-python C:\path\to\agent-env\Scripts\python.exe</pre>
+<p>The generated <code>mcp-client.json</code> and <code>mcp-codex.toml</code> files in <code>%LOCALAPPDATA%\LabscriptAgentControl</code> are configuration examples. Register the appropriate example with your agent. Each configured Python environment must have this package installed. After installing the bridges, normally close and reopen both applications to load them.</p>
+<p>Application startup uses tasks <code>LabscriptAgent-BLACS</code> and <code>LabscriptAgent-Runmanager</code>, running with the logged-on user's interactive token and normal privileges. The user must remain logged on; an SSH login alone does not create that desktop session. WSL clients should invoke Windows Python or use SSH rather than assuming WSL localhost is the Windows control endpoint.</p>
+<h2>Target configuration</h2>
+<p>Copy <code>examples/targets.example.json</code> to a private configuration file. Set each target's actual Windows hostname, SSH host alias, and Python executable. That Python executable must be able to run <code>python -m labcontrol</code>. There is no requirement for the package checkout to live inside the experiment repository.</p>
+<table><tr><th>Option</th><th>Behavior</th></tr>
+<tr><td><code>--local</code></td><td>Connect directly to this machine; no SSH required.</td></tr>
+<tr><td><code>--target lab-a</code></td><td>Load a profile; use local transport if its hostname matches this machine, otherwise SSH.</td></tr>
+<tr><td><code>--transport ssh</code></td><td>Force SSH for a named target.</td></tr>
+<tr><td><code>--transport local</code></td><td>Force local transport, refusing a mismatched target hostname.</td></tr>
+<tr><td>No target option</td><td>Native Windows defaults to local. Other platforms use default_target from the configuration file.</td></tr></table>
+<p><code>--host</code> is an alias for <code>--target</code>. Configuration lookup uses <code>--config</code>, then <code>LABCONTROL_CONFIG</code>, then <code>%LOCALAPPDATA%\LabscriptAgentControl\targets.json</code> on Windows or <code>$XDG_CONFIG_HOME/labscript-control/targets.json</code> elsewhere (default <code>~/.config/labscript-control/targets.json</code>).</p>
+<pre>labctl --config targets.json --target lab-a status
+labctl --config targets.json --target lab-b status host
+labctl --local status</pre>
+<p><code>status host</code> works while the applications are stopped. Responses identify the actual hostname. Named-target requests are checked on the execution host before mutations. SSH uses <code>--ssh-config</code> if specified, otherwise an existing <code>~/.ssh/config</code>, otherwise OpenSSH defaults. For an MCP process using an SSH authentication agent, pass SSH_AUTH_SOCK into its environment or configure IdentityAgent in SSH settings. Never copy credentials into the target JSON.</p>
+<h2>Leases for multiple agents</h2>
+<p>A lease reserves both applications on one PC across commands and normal application restarts. Local CLI, remote CLI, and MCP all share the lease. Reads remain available. Mutations without the matching lease ID are rejected while a lease is active.</p>
+<pre>labctl --local lease acquire --owner agent-a --ttl 300
+# Save result.lease_id from the response:
+labctl --local --lease-id UUID queue pause
+labctl --local --lease-id UUID --wait tab restart camera
+labctl --local --lease-id UUID lease renew --ttl 300
+labctl --local --lease-id UUID lease release
+labctl --local lease status</pre>
+<p>TTL is 30–3600 seconds; the default is 300. Renew before expiration. An expired or released lease ID cannot authorize another mutation. Each acquire, renew, and release needs a new request ID; resending an old request returns its receipt without extending the lease. The owner label is descriptive; use a UUID as the lease credential. Status responses do not disclose that credential.</p>
+<p>Individual mutations are permitted when no lease exists, and their synchronous execution is serialized across clients. A lease is needed to coordinate a multi-step operation, including waiting for asynchronous startup. Leases are cooperative: GUI buttons and other native labscript APIs do not use this lock. Lease expiration or release does not abort a running shot.</p>
+<h2>Queue and application commands</h2>
+<table><tr><th>Command</th><th>Behavior</th></tr>
+<tr><td><code>queue list</code></td><td>Read paths, revision, pause/repeat, and current state.</td></tr>
+<tr><td><code>queue pause</code></td><td>Prevent the next shot from starting. A running shot continues.</td></tr>
+<tr><td><code>queue resume</code></td><td>Check device readiness and resume. Pending shots can operate hardware.</td></tr>
+<tr><td><code>queue abort</code></td><td>Use BLACS's normal Abort action, and pause.</td></tr>
+<tr><td><code>queue add --path 'Z:\...\shot.h5'</code></td><td>Require a paused queue and a fresh, unrun shot. BLACS checks its connection table.</td></tr>
+<tr><td><code>queue remove --index 0 --revision REV</code></td><td>Remove one pending shot while paused. Indexes start at zero.</td></tr>
+<tr><td><code>queue move --index 0 --destination 2 --revision REV</code></td><td>Move to the specified final index while paused.</td></tr>
+<tr><td><code>queue clear --revision REV</code></td><td>Clear pending shots while paused.</td></tr>
+<tr><td><code>queue repeat --enabled false</code></td><td>Enable/disable the existing repeat mode.</td></tr>
+<tr><td><code>tab restart NAME</code></td><td>Restart one device tab while BLACS is idle.</td></tr>
+<tr><td><code>app start|stop|restart blacs|runmanager</code></td><td>Start an application, or request normal shutdown/restart.</td></tr></table>
+<p>Use the revision returned by the latest <code>queue list</code>. Editing is rejected if another client or the GUI changed the queue. H5 access occurs in the application's desktop session, allowing mapped drives that are unavailable to an SSH shell.</p>
+<p>Restarts are refused during a shot and leave BLACS paused. <code>--wait</code> waits for a new application PID or worker PIDs and readiness after start/restart (default 120 seconds; change with <code>--timeout</code>). It does not wait for stop. Use <code>--broken-tabs preserve</code> to retain failed-tab settings when shutting down BLACS. No automatic forced termination is provided.</p>
+<h2>Runmanager</h2>
+<pre>labctl --local runmanager globals
+labctl --local runmanager set-globals --values '{"hold_time": "1.0"}'
+labctl --local runmanager select --path 'C:\experiments\shot.py'
+labctl --local runmanager compile
+labctl --local runmanager abort</pre>
+<p>Globals are Python-expression strings from active groups. An empty selection returns an empty mapping. Compile initiates compilation without submitting shots to BLACS or Runviewer, and preserves the GUI's Run shot(s) setting. <code>accepted</code> means the request was accepted, not that compilation succeeded. Read compilation state through status and inspect Runmanager Output for detailed errors.</p>
+<p>A Runmanager restart saves current GUI state to the autoload configuration and backs up the previous file with a <code>.before-agent-restart</code> suffix. BLACS uses its normal front-panel save and worker shutdown path.</p>
+<h2>Mutation receipts</h2>
+<pre>labctl --local --request-id restart-001 --wait app restart runmanager
+labctl --local operation runmanager restart-001
+labctl --local operation host lease-request-id</pre>
+<p>CLI commands generate request IDs when omitted; MCP mutations require them explicitly. Receipts are durable across process restarts and include app start and lease operations. An identical request ID and payload returns the existing receipt instead of repeating the action. Reusing an ID for different parameters is rejected. Query receipts and current state after uncertain transport failures; <code>outcome_unknown</code> means the outcome cannot be confirmed. Receipts can be read while applications are stopped.</p>
+<h2>MCP tools</h2>
+<p>Start <code>labcontrol-mcp --local</code> or <code>labcontrol-mcp --config targets.json --target lab-a</code>. Module execution is also supported: <code>python -m labcontrol.mcp_server</code>. Register distinct server names for distinct targets.</p>
+<p>The 16 tools are <code>labscript_status</code>, <code>labscript_application</code>, <code>labscript_operation</code>, <code>labscript_lease_status</code>, <code>labscript_lease</code>, <code>blacs_queue_list/control/add/edit/repeat</code>, <code>blacs_restart_tab</code>, and <code>runmanager_globals/set_globals/select_script/compile/abort_compile</code>. Mutation tools accept lease_id. Use a tool timeout of at least 180 seconds for restart waits.</p>
+<h2>Updates and migration</h2>
+<p>From the original script-based deployment, install this package in the experiment Python environment and run the installer with the existing labscript profile root. The installer recognizes the existing hook markers and replaces the old checkout-path hook with the installed package import. Existing token, lease database, and receipts remain in the same control-state directory. Normal application restarts activate the new code. Remote profiles now identify a Python with this package installed; an experiment-repository root is no longer part of the SSH transport configuration.</p>
+<p>The standalone distribution's installer has source-edit and packaging tests. Exercise updates on an idle apparatus. Keep the experiment's configuration and running installation until the new bridge is confirmed. Application package upgrades may replace the BLACS plugin or Runmanager hook, requiring reinstallation.</p>
+<p>Backup manifests in <code>%LOCALAPPDATA%\LabscriptAgentControl\backups</code> record paths and before/after hashes. To roll back, normally stop the apps and restore only matching files; do not overwrite unrelated later edits. The installer never copies an existing control PC's token or experiment data into this repository.</p>
+<h2>Transport and scope</h2>
+<p>BLACS listens on 127.0.0.1:47140 and Runmanager on 127.0.0.1:47141, authenticated by a per-user bearer token. There is no need to expose these HTTP ports to the LAN. Use the same Windows account as the applications for local or SSH access. This project is a control integration, not a substitute for apparatus interlocks or labscript's shot timing.</p>
+<p>Protocol and controller tests do not connect to laboratory hardware or run shots. See the repository's GitHub Actions results for the tested Python/OS matrix. A license has not yet been selected.</p>
+</html>
