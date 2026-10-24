@@ -130,4 +130,4 @@ future BLACS/Runmanager releases may require bridge updates.
 
 ## License
 
-A license has not yet been selected.
+Released under the [MIT License](LICENSE).

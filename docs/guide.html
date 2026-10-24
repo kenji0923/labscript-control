@@ -83,5 +83,5 @@ labctl --local operation host lease-request-id</pre>
 <p>Backup manifests in <code>%LOCALAPPDATA%\LabscriptAgentControl\backups</code> record paths and before/after hashes. To roll back, normally stop the apps and restore only matching files; do not overwrite unrelated later edits. The installer never copies an existing control PC's token or experiment data into this repository.</p>
 <h2>Transport and scope</h2>
 <p>BLACS listens on 127.0.0.1:47140 and Runmanager on 127.0.0.1:47141, authenticated by a per-user bearer token. There is no need to expose these HTTP ports to the LAN. Use the same Windows account as the applications for local or SSH access. This project is a control integration, not a substitute for apparatus interlocks or labscript's shot timing.</p>
-<p>Protocol and controller tests do not connect to laboratory hardware or run shots. See the repository's GitHub Actions results for the tested Python/OS matrix. A license has not yet been selected.</p>
+<p>Protocol and controller tests do not connect to laboratory hardware or run shots. See the repository's GitHub Actions results for the tested Python/OS matrix. Released under the <a href="../LICENSE">MIT License</a>.</p>
 </html>
